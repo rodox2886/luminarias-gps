@@ -1,0 +1,86 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Clasificador con GPS - Luminarias Públicas</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.9.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    #preview { max-height: 350px; margin-top: 10px; }
+    #result, #gps { margin-top: 20px; font-size: 1.1em; }
+  </style>
+</head>
+<body>
+  <h2>Clasificación de Luminarias con GPS</h2>
+  <p><strong>Clases:</strong> Luminaria LED / Luminaria Sodio</p>
+  <input type="file" accept="image/*" onchange="previewAndAnalyze(this)">
+  <br>
+  <img id="preview" />
+  <div id="result">Esperando imagen...</div>
+  <div id="gps">Coordenadas: -</div>
+
+  <script>
+    const URL = "model_js/";
+    let model = null;
+
+    async function loadModel() {
+      model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+      console.log("Modelo cargado.");
+    }
+    loadModel();
+
+    function toDecimal(coord, ref) {
+      const decimal = coord[0] + coord[1] / 60 + coord[2] / 3600;
+      return (ref === "S" || ref === "W") ? -decimal : decimal;
+    }
+
+    async function classifyImage(img) {
+      if (!model) {
+        document.getElementById("result").innerText = "Modelo aún no cargado.";
+        return;
+      }
+
+      const prediction = await model.predict(img);
+      const best = prediction.reduce((a, b) => a.probability > b.probability ? a : b);
+      document.getElementById('result').innerHTML =
+        `🌙 Tipo de luminaria detectado: <strong>${best.className}</strong>
+         (confianza: ${(best.probability * 100).toFixed(1)}%)`;
+    }
+
+    async function previewAndAnalyze(input) {
+      const file = input.files[0];
+      const reader = new FileReader();
+
+      reader.onload = function (e) {
+        const img = document.getElementById('preview');
+        img.onload = function () {
+          classifyImage(img);
+        };
+
+        img.src = e.target.result;
+
+        // Leer metadatos EXIF
+        EXIF.getData(file, function () {
+          const lat = EXIF.getTag(this, "GPSLatitude");
+          const lon = EXIF.getTag(this, "GPSLongitude");
+          const latRef = EXIF.getTag(this, "GPSLatitudeRef");
+          const lonRef = EXIF.getTag(this, "GPSLongitudeRef");
+
+          if (lat && lon && latRef && lonRef) {
+            const latitude = toDecimal(lat, latRef).toFixed(6);
+            const longitude = toDecimal(lon, lonRef).toFixed(6);
+            document.getElementById("gps").innerText = `📍 Coordenadas: ${latitude}, ${longitude}`;
+          } else {
+            document.getElementById("gps").innerText = "📍 Coordenadas: No disponibles en esta imagen.";
+          }
+        });
+      };
+
+      reader.readAsDataURL(file);
+    }
+  </script>
+</body>
+</html>
