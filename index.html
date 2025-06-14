@@ -2,75 +2,58 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <title>Detector de Luminarias</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <meta charset="UTF-8">
+  <title>Clasificador de Luminarias</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; }
-    canvas { max-width: 90%; }
-    #output { margin-top: 20px; }
+    body { font-family: Arial, sans-serif; text-align: center; margin-top: 30px; }
+    #image-preview { max-width: 400px; margin-top: 20px; }
+    .result-bar { width: 300px; height: 20px; background: #eee; margin: 5px auto; position: relative; }
+    .result-bar-fill { height: 100%; background: #4caf50; text-align: left; color: white; padding-left: 5px; }
   </style>
 </head>
 <body>
-  <h1>Detector de Luminarias</h1>
+  <h1>Clasificador de Luminarias</h1>
+  <p><strong>Clases:</strong> LED, Sodio, Mercurio, Apagada, Decorativa, Desconocida</p>
   <input type="file" accept="image/*" onchange="handleImage(event)">
-  <br><br>
-  <canvas id="canvas"></canvas>
-  <div id="output"></div>
+  <br><img id="image-preview" />
+  <div id="results"></div>
 
   <script>
-    let model;
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
+    let model, labels;
 
     async function loadModel() {
-      model = await tf.loadGraphModel('model/model.json');
-      console.log("Modelo cargado");
+      model = await tf.loadLayersModel('model/model.json');
+      const metadata = await fetch('model/metadata.json').then(res => res.json());
+      labels = metadata.labels;
     }
 
     async function handleImage(event) {
       const file = event.target.files[0];
-      if (!file) return;
-
-      const img = new Image();
-      img.onload = async () => {
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
-
-        const input = tf.browser.fromPixels(canvas).resizeBilinear([416, 416]).expandDims(0).toFloat().div(255);
-        const predictions = await model.executeAsync(input);
-
-        const boxes = predictions[1].arraySync()[0];
-        const scores = predictions[4].arraySync()[0];
-        const classes = predictions[2].arraySync()[0];
-
-        let count = {};
-
-        for (let i = 0; i < scores.length; i++) {
-          if (scores[i] > 0.5) {
-            const [ymin, xmin, ymax, xmax] = boxes[i];
-            const x = xmin * img.width;
-            const y = ymin * img.height;
-            const width = (xmax - xmin) * img.width;
-            const height = (ymax - ymin) * img.height;
-
-            const label = classes[i];
-            count[label] = (count[label] || 0) + 1;
-
-            ctx.strokeStyle = 'red';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(x, y, width, height);
-            ctx.fillStyle = 'red';
-            ctx.fillText(label, x, y > 10 ? y - 5 : y + 15);
-          }
-        }
-
-        document.getElementById("output").innerText = "Conteo por tipo: " + JSON.stringify(count);
-      };
-
+      const img = document.getElementById('image-preview');
       img.src = URL.createObjectURL(file);
+      img.onload = async () => {
+        const tensor = tf.browser.fromPixels(img)
+          .resizeNearestNeighbor([224, 224])
+          .toFloat()
+          .div(255)
+          .expandDims();
+        const prediction = await model.predict(tensor).data();
+        showResults(prediction);
+      };
+    }
+
+    function showResults(predictions) {
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = "<h3>Resultados:</h3>";
+      predictions.forEach((score, i) => {
+        const label = labels[i] || `Clase ${i}`;
+        const percent = (score * 100).toFixed(1);
+        resultsDiv.innerHTML += `
+          <div>${label}: ${percent}%</div>
+          <div class="result-bar"><div class="result-bar-fill" style="width:${percent}%">${percent > 10 ? percent + '%' : ''}</div></div>
+        `;
+      });
     }
 
     loadModel();
